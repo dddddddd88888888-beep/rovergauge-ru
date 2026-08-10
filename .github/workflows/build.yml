@@ -12,7 +12,7 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # 1. Скачиваем исходники библиотеки по вашей ссылке
+      # 1. Скачивание исходников библиотеки
       - name: Download libcomm14cux Source
         run: |
           Write-Host "Downloading libcomm14cux source..."
@@ -20,10 +20,9 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile "libcomm_src.zip"
           Expand-Archive -Path "libcomm_src.zip" -DestinationPath "libcomm_src" -Force
           
-          # Переименовываем папку для удобства (убираем версию из имени)
+          # Переименовываем папку для удобства
           Move-Item -Path "libcomm_src/libcomm14cux-2.1.3" -Destination "libcomm_src_clean" -Force
-          
-          Write-Host "Source downloaded and prepared."
+          Write-Host "Source downloaded."
         shell: pwsh
 
       - name: Install Qt
@@ -39,41 +38,43 @@ jobs:
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 2. Собираем библиотеку из исходников (теперь это должно сработать без ошибок unistd.h, если код обновлен)
-      # Если в исходниках всё ещё есть unistd.h, нам нужно будет применить патч.
-      # Но сначала попробуем стандартную сборку.
+      # 2. Сборка библиотеки из исходников с патчем для Windows
       - name: Build libcomm14cux from Source
         run: |
           Write-Host "Building libcomm14cux from source..."
           
-          # Проверяем наличие файла unistd.h в коде (частая проблема портирования)
-          # Если он есть, заменяем его на заглушку для Windows
+          # Патчим файлы: убираем unistd.h, которого нет в Windows
           $files = Get-ChildItem -Path "libcomm_src_clean" -Recurse -Include "*.c","*.h"
           foreach ($file in $files) {
             $content = Get-Content $file.FullName -Raw
             if ($content -match '#include\s*<unistd\.h>') {
               Write-Host "Patching unistd.h in $($file.Name)..."
-              $content = $content -replace '#include\s*<unistd\.h>', '// #include <unistd.h> // Removed for Windows MSVC'
+              $content = $content -replace '#include\s*<unistd\.h>', '// #include <unistd.h> // Removed for Windows'
               Set-Content -Path $file.FullName -Value $content -NoNewline
             }
           }
 
-          # Настраиваем и собираем библиотеку
+          # Устанавливаем переменную окружения для CMake (исправление ошибки версии)
+          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+
+          # Конфигурируем и собираем
           cmake -B libcomm_build `
             -G "Visual Studio 18 2026" `
             -A x64 `
-            -S libcomm_src_clean `
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            -S libcomm_src_clean
             
+          # Сбрасываем переменную
+          Remove-Item Env:\CMAKE_POLICY_VERSION_MINIMUM -ErrorAction SilentlyContinue
+
           cmake --build libcomm_build --config Release
           
-          # Ищем результат сборки (.lib и .dll)
+          # Копируем результат
           $libFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.lib" | Select-Object -First 1
           $dllFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.dll" | Select-Object -First 1
           
           if ($libFile) {
             Copy-Item $libFile.FullName -Destination "comm14cux.lib" -Force
-            Write-Host "Library comm14cux.lib created successfully."
+            Write-Host "SUCCESS: comm14cux.lib created."
           } else {
             Write-Error "Failed to build .lib file!"
             exit 1
@@ -84,16 +85,17 @@ jobs:
           }
         shell: pwsh
 
+      # 3. Копирование заголовков в проект
       - name: Copy Headers to Main Project
         run: |
-          # Копируем заголовки из исходников библиотеки в папку src основного проекта
-          Copy-Item "libcomm_src_clean/include/*.h" -Destination "src" -Force
-          # Или из src, если include нет
-          if (Test-Path "libcomm_src_clean/src/*.h") {
-             Copy-Item "libcomm_src_clean/src/*.h" -Destination "src" -Force
+          if (Test-Path "libcomm_src_clean/include/*.h") {
+            Copy-Item "libcomm_src_clean/include/*.h" -Destination "src" -Force
+          } elseif (Test-Path "libcomm_src_clean/src/*.h") {
+            Copy-Item "libcomm_src_clean/src/*.h" -Destination "src" -Force
           }
         shell: pwsh
 
+      # 4. Сборка основной программы
       - name: Configure Rovergauge
         run: |
           cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}"
