@@ -40,40 +40,52 @@ jobs:
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      # --- ИСПРАВЛЕННЫЙ ШАГ СБОРКИ БИБЛИОТЕКИ ---
       - name: Build libcomm14cux
         run: |
-          Write-Host "Building libcomm14cux library with updated CMake policy..."
+          Write-Host "Building libcomm14cux library..."
           
-          # Добавляем -DCMAKE_POLICY_VERSION_MINIMUM=3.5 для обхода ошибки совместимости
+          # 1. Создаем пустой файл README, если его нет (исправление ошибки configure_file)
+          if (-not (Test-Path "temp_libcomm/README")) {
+            New-Item -Path "temp_libcomm/README" -ItemType File -Force | Out-Null
+            Write-Host "Created missing README file."
+          }
+          
+          # 2. Запускаем CMake с корректным флагом политики (используем кавычки для значения)
+          # Используем переменную окружения вместо аргумента командной строки, чтобы избежать проблем с парсингом
+          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+          
           cmake -B temp_libcomm/build `
             -G "Visual Studio 18 2026" `
             -A x64 `
-            -S temp_libcomm `
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            -S temp_libcomm
             
+          # Сбрасываем переменную
+          Remove-Item Env:\CMAKE_POLICY_VERSION_MINIMUM -ErrorAction SilentlyContinue
+
+          # 3. Собираем библиотеку
           cmake --build temp_libcomm/build --config Release
           
-          # Поиск и копирование .lib файла
+          # 4. Ищем и копируем .lib файл
           $libFound = $false
-          if (Test-Path "temp_libcomm/build/Release/comm14cux.lib") {
-             Copy-Item "temp_libcomm/build/Release/comm14cux.lib" -Destination "." -Force
-             Write-Host "Found and copied comm14cux.lib"
-             $libFound = $true
-          } elseif (Test-Path "temp_libcomm/build/Release/libcomm14cux.lib") {
-             Copy-Item "temp_libcomm/build/Release/libcomm14cux.lib" -Destination "." -Force
-             Write-Host "Found and copied libcomm14cux.lib"
-             $libFound = $true
+          $possibleNames = @("comm14cux.lib", "libcomm14cux.lib")
+          
+          foreach ($name in $possibleNames) {
+            $path = "temp_libcomm/build/Release/$name"
+            if (Test-Path $path) {
+              Copy-Item $path -Destination "." -Force
+              Write-Host "Found and copied: $name"
+              $libFound = $true
+              break
+            }
           }
           
           if (-not $libFound) {
-             Write-Error "Failed to find compiled .lib file!"
-             Write-Host "Contents of Release folder:"
-             Get-ChildItem "temp_libcomm/build/Release"
-             exit 1
+            Write-Error "Failed to find compiled .lib file!"
+            Write-Host "Contents of Release folder:"
+            Get-ChildItem "temp_libcomm/build/Release" -ErrorAction SilentlyContinue
+            exit 1
           }
         shell: pwsh
-      # -------------------------------------------
 
       - name: Configure Rovergauge
         run: |
