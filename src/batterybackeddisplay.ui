@@ -26,7 +26,7 @@
       </sizepolicy>
      </property>
      <property name="text">
-      <string>Battery-backed RAM contents:</string>
+      <string>Содержимое памяти с батарейным питанием:</string>
      </property>
     </widget>
    </item>
@@ -46,17 +46,17 @@
      </attribute>
      <column>
       <property name="text">
-       <string>Offset</string>
+       <string>Смещение</string>
       </property>
      </column>
      <column>
       <property name="text">
-       <string>Value</string>
+       <string>Значение</string>
       </property>
      </column>
      <column>
       <property name="text">
-       <string>Notes</string>
+       <string>Примечания</string>
       </property>
      </column>
     </widget>
@@ -71,7 +71,7 @@
    <item>
     <widget class="QPushButton" name="m_closeButton">
      <property name="text">
-      <string>Close</string>
+      <string>Закрыть</string>
      </property>
     </widget>
    </item>
