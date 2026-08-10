@@ -12,35 +12,75 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # 1. Скачивание готовой библиотеки
       - name: Download libcomm14cux Binary
         run: |
-          Write-Host "Downloading pre-built libcomm14cux..."
+          Write-Host "Downloading and converting libcomm14cux..."
           $url = "https://github.com/colinbourassa/libcomm14cux/releases/download/2.1.3/libcomm14cux-2.1.3-Windows-x86_64.zip"
           Invoke-WebRequest -Uri $url -OutFile "libcomm.zip"
           Expand-Archive -Path "libcomm.zip" -DestinationPath "libcomm_bin" -Force
           
-          # Выводим структуру папок для отладки
-          Write-Host "Archive contents:"
-          Get-ChildItem -Recurse "libcomm_bin"
+          # Копируем заголовки
+          Copy-Item "libcomm_bin/include/*" -Destination "src" -Force
           
-          # Копируем все .lib и .dll файлы в корень рабочей директории
-          Get-ChildItem -Path "libcomm_bin" -Recurse -Include "*.lib","*.dll" | Copy-Item -Destination "." -Force
+          # Копируем DLL в корень для удобства
+          Copy-Item "libcomm_bin/bin/libcomm14cux.dll" -Destination "libcomm14cux.dll" -Force
           
-          Write-Host "Files available in root:"
-          Get-ChildItem -Filter "*.lib"
-          Get-ChildItem -Filter "*.dll"
+          Write-Host "Files ready for conversion."
         shell: pwsh
 
-      # 2. Получение заголовочного файла
-      - name: Get Header File
+      - name: Setup MSVC Environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # --- НОВЫЙ ШАГ: Конвертация .dll в .lib для MSVC ---
+      - name: Generate MSVC .lib file
         run: |
-          git clone --depth 1 https://github.com/colinbourassa/libcomm14cux.git temp_src
-          if (Test-Path "temp_src/src/comm14cux.h") {
-            Copy-Item "temp_src/src/*.h" -Destination "src" -Force
+          Write-Host "Generating comm14cux.lib from DLL..."
+          
+          # Создаем файл определений (def) вручную, так как у нас нет исходников .def
+          # Обычно экспортируются функции с именами c14cux_...
+          # Но проще использовать machinedump для получения имен, или создать пустой lib, 
+          # если линковщик согласится. 
+          # Однако, самый надежный способ для DLL без DEF - использовать lib /machine:x64 /def: ...
+          # Но так как у нас нет DEF, попробуем создать библиотеку импорта напрямую из DLL.
+          
+          # Команда для создания .lib из .dll:
+          lib /machine:x64 /def:libcomm14cux.def /out:comm14cux.lib
+          
+          # Так как у нас нет .def файла, мы используем трюк:
+          # dumpbin /exports libcomm14cux.dll > exports.txt
+          # Затем парсим exports.txt и создаем .def файл.
+          
+          dumpbin /exports libcomm14cux.dll > exports.txt
+          
+          # Создаем простой .def файл скриптом
+          "LIBRARY libcomm14cux.dll" | Out-File -FilePath "libcomm14cux.def" -Encoding ASCII
+          "EXPORTS" | Out-File -FilePath "libcomm14cux.def" -Append -Encoding ASCII
+          
+          # Извлекаем имена функций и добавляем в .def
+          Get-Content exports.txt | Select-String "^\s+[0-9]+" | ForEach-Object {
+              $parts = $_.Line -split '\s+'
+              if ($parts.Count -ge 4) {
+                  $funcName = $parts[3]
+                  # Убираем декорацию имен если есть (например @12)
+                  $cleanName = $funcName.Split('@')[0]
+                  "    $cleanName" | Out-File -FilePath "libcomm14cux.def" -Append -Encoding ASCII
+              }
           }
-          Remove-Item -Recurse -Force temp_src
+          
+          Write-Host "Generated DEF file:"
+          Get-Content libcomm14cux.def
+          
+          # Генерируем .lib
+          lib /machine:x64 /def:libcomm14cux.def /out:comm14cux.lib
+          
+          if (Test-Path "comm14cux.lib") {
+              Write-Host "SUCCESS: comm14cux.lib created!"
+          } else {
+              Write-Error "Failed to create .lib file"
+              exit 1
+          }
         shell: pwsh
+      # ----------------------------------------------------
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -52,18 +92,9 @@ jobs:
           modules: 'qtcharts'
           cache: true
 
-      - name: Setup MSVC Environment
-        uses: ilammy/msvc-dev-cmd@v1
-
       - name: Configure Rovergauge
         run: |
-          Write-Host "Configuring CMake..."
-          # Явно указываем путь поиска библиотек в текущей папке, где лежат .lib файлы
-          cmake -B build `
-            -G "Visual Studio 18 2026" `
-            -A x64 `
-            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}" `
-            -DCMAKE_LIBRARY_PATH="${{ github.workspace }}"
+          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}"
         shell: pwsh
           
       - name: Build Rovergauge
@@ -72,8 +103,7 @@ jobs:
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-          # Копируем DLL рядом с exe
-          Get-ChildItem -Filter "*.dll" | Copy-Item -Destination "build/Release/" -Force
+          Copy-Item "libcomm14cux.dll" -Destination "build/Release/" -Force
         shell: pwsh
 
       - name: Upload EXE
