@@ -235,8 +235,10 @@ target_link_libraries (rovergauge Qt5::Widgets)
 else()
   message (STATUS "Defaulting to Linux build environment.")
 
-  target_link_libraries (rovergauge comm14cux Qt5::Widgets)
-
+  # Закомментировано, так как мы включили исходники библиотеки в проект
+  # target_link_libraries (rovergauge comm14cux Qt5::Widgets)
+  target_link_libraries (rovergauge Qt5::Widgets) 
+  
   set (CMAKE_SKIP_RPATH TRUE)
   set (CMAKE_INSTALL_PREFIX "/usr")
 
