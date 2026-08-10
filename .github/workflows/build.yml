@@ -9,18 +9,16 @@ jobs:
     runs-on: windows-latest
     
     steps:
-      # 1. Скачивание основного кода rovergauge
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # 2. Скачивание библиотеки libcomm14cux в папку libcomm14cux
+      # Скачиваем библиотеку libcomm14cux
       - name: Checkout libcomm14cux
         uses: actions/checkout@v4
         with:
           repository: colinbourassa/libcomm14cux
           path: libcomm14cux
           
-      # 3. Установка Qt
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -31,57 +29,76 @@ jobs:
           modules: 'qtcharts'
           cache: true
 
-      # 4. Инициализация среды Visual Studio
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 5. Настройка CMake с правильными путями
       - name: Configure CMake
         run: |
-          Write-Host "Configuring CMake..."
+          Write-Host "Configuring CMake with explicit paths..."
           
           $qtPath = "$env:Qt5_DIR"
-          $libcommBase = "${{ github.workspace }}/libcomm14cux"
+          $libcommPath = "${{ github.workspace }}/libcomm14cux"
           
-          # Определяем путь к заголовкам. Обычно они в папке src.
-          $libcommSrc = "$libcommBase/src"
-          
-          # Проверка: если файла нет в src, проверяем корень или выводим ошибку
-          if (-not (Test-Path "$libcommSrc/comm14cux.h")) {
-             if (Test-Path "$libcommBase/comm14cux.h") {
-                 $libcommSrc = $libcommBase
-                 Write-Host "Found headers in root of libcomm14cux"
-             } else {
-                 Write-Error "Файл comm14cux.h не найден. Структура папки libcomm14cux:"
-                 Get-ChildItem -Recurse -Filter "comm14cux.h" $libcommBase
-                 exit 1
-             }
+          # 1. Ищем заголовочный файл, чтобы понять структуру папок
+          $headerPath = ""
+          if (Test-Path "$libcommPath/src/comm14cux.h") {
+              $headerPath = "$libcommPath/src"
+              Write-Host "Headers found in: /src"
+          } elseif (Test-Path "$libcommPath/include/comm14cux.h") {
+              $headerPath = "$libcommPath/include"
+              Write-Host "Headers found in: /include"
+          } elseif (Test-Path "$libcommPath/comm14cux.h") {
+              $headerPath = "$libcommPath"
+              Write-Host "Headers found in: root"
           } else {
-             Write-Host "Found headers in libcomm14cux/src"
+              Write-Error "CRITICAL: comm14cux.h not found anywhere in libcomm14cux!"
+              Get-ChildItem -Recurse -Path $libcommPath -Filter "*.h"
+              exit 1
           }
 
-          Write-Host "Using include path: $libcommSrc"
+          # 2. Ищем файл библиотеки (.lib или .dll) для find_library
+          # В Windows MSVC обычно ищет .lib файлы для линковки
+          $libDirPath = ""
+          if (Test-Path "$libcommPath/Release/libcomm14cux.lib") {
+              $libDirPath = "$libcommPath/Release"
+              Write-Host "Library found in: /Release"
+          } elseif (Test-Path "$libcommPath/libcomm14cux.lib") {
+              $libDirPath = "$libcommPath"
+              Write-Host "Library found in: root"
+          } elseif (Test-Path "$libcommPath/libcomm14cux.dll") {
+              # Если есть только DLL, указываем папку с ним, но сборка может упасть на линковке без .lib
+              $libDirPath = "$libcommPath"
+              Write-Host "Only DLL found. Warning: .lib file might be missing for linking."
+          } else {
+               Write-Warning "Binary library (.lib/.dll) not found in standard locations. CMake will search globally."
+               $libDirPath = "$libcommPath"
+          }
 
-          # Запуск cmake с явным указанием путей включения и библиотек
+          Write-Host "Using Header Path: $headerPath"
+          Write-Host "Using Library Path: $libDirPath"
+
+          # 3. Запускаем CMake, передавая пути через переменные окружения CMAKE
+          # CMAKE_INCLUDE_PATH поможет найти .h файлы
+          # CMAKE_LIBRARY_PATH поможет find_library найти .lib/.dll файлы
           cmake -B build `
             -G "Visual Studio 18 2026" `
             -A x64 `
-            -DCMAKE_PREFIX_PATH="$qtPath;$libcommBase" `
-            -DCMAKE_INCLUDE_PATH="$qtPath/include;$libcommSrc" `
-            -DCMAKE_LIBRARY_PATH="$qtPath/lib;$libcommBase"
+            -DCMAKE_PREFIX_PATH="$qtPath;$libcommPath" `
+            -DCMAKE_INCLUDE_PATH="$headerPath" `
+            -DCMAKE_LIBRARY_PATH="$libDirPath" `
+            -DCMAKE_LIBRARY_PATH="$libDirPath;$qtPath/lib"
         shell: pwsh
           
-      # 6. Сборка проекта
       - name: Build Project
         run: cmake --build build --config Release
           
-      # 7. Копирование DLL зависимостей Qt
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
+          # Копируем также libcomm14cux.dll если она есть в папке сборки или библиотеки
+          if (Test-Path "libcomm14cux/libcomm14cux.dll") { Copy-Item "libcomm14cux/libcomm14cux.dll" "build/Release/" }
         shell: pwsh
 
-      # 8. Загрузка готового артефакта
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
