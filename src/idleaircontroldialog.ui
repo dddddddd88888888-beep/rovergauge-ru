@@ -11,13 +11,13 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Idle Air Control</string>
+   <string>Регулировка ХХ</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
    <item row="0" column="0" colspan="3">
     <widget class="QRadioButton" name="m_openValveButton">
      <property name="text">
-      <string>Open IAC valve</string>
+      <string>Открыть клапан ХХ</string>
      </property>
      <property name="checked">
       <bool>true</bool>
@@ -27,7 +27,7 @@
    <item row="1" column="0">
     <widget class="QRadioButton" name="m_closeValveButton">
      <property name="text">
-      <string>Close IAC valve</string>
+      <string>Закрыть клапан ХХ</string>
      </property>
     </widget>
    </item>
@@ -47,28 +47,28 @@
    <item row="3" column="5">
     <widget class="QPushButton" name="m_closeButton">
      <property name="text">
-      <string>Close</string>
+      <string>Закрыть</string>
      </property>
     </widget>
    </item>
    <item row="0" column="3">
     <widget class="QLabel" name="m_stepCountLabel">
      <property name="text">
-      <string>Steps:</string>
+      <string>Шаги:</string>
      </property>
     </widget>
    </item>
    <item row="0" column="5">
     <widget class="QPushButton" name="m_sendCommandButton">
      <property name="text">
-      <string>Send command</string>
+      <string>Отправить команду</string>
      </property>
     </widget>
    </item>
    <item row="2" column="0" colspan="6">
     <widget class="QLabel" name="m_noticeLabel">
      <property name="text">
-      <string>Note: it is recommended to only test the idle air control movement when the engine is not running. Attempting to move the bypass valve while the engine is running may result in unpredictable behavior.</string>
+      <string>Примечание: рекомендуется тестировать работу механизма холостого хода только на неработающем двигателе. Попытка изменить положение клапана ХХ при работающем моторе может привести к непредсказуемым результатам.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
