@@ -184,14 +184,35 @@ if (MINGW)
     message (WARNING "Could not find Qt Windows Vista style GUI plugin!")
   endif ()
 
-  find_library (COMM14CUX_DLL libcomm14cux)
-  if (COMM14CUX_DLL)
-    message (STATUS "Found libcomm14cux at ${COMM14CUX_DLL}")
-  else ()
-    message (SEND_ERROR "Could not find libcomm14cux!")
-  endif ()
 
-  target_link_libraries (rovergauge ${COMM14CUX_DLL} Qt5::Widgets)
+
+#  find_library (COMM14CUX_DLL libcomm14cux)
+
+#  if (COMM14CUX_DLL)
+#    message (STATUS "Found libcomm14cux at ${COMM14CUX_DLL}")
+#  else ()
+#    message (SEND_ERROR "Could not find libcomm14cux!")
+#  endif ()
+
+#  target_link_libraries (rovergauge ${COMM14CUX_DLL} Qt5::Widgets)
+
+
+
+# Явно указываем путь к библиотеке в корне исходного кода
+# Мы копируем сгенерированный comm14cux.lib именно туда
+set (COMM14CUX_DLL "${CMAKE_SOURCE_DIR}/comm14cux.lib")
+
+# Проверка: если файла нет, выводим фатальную ошибку
+if(NOT EXISTS ${COMM14CUX_DLL})
+    message(FATAL_ERROR "Ошибка: Файл comm14cux.lib не найден в корне проекта (${CMAKE_SOURCE_DIR})!")
+    message("Убедитесь, что шаг сборки библиотеки в GitHub Actions прошел успешно.")
+else()
+    message (STATUS "Используем libcomm14cux из: ${COMM14CUX_DLL}")
+endif ()
+
+target_link_libraries (rovergauge ${COMM14CUX_DLL} Qt5::Widgets)   
+
+
 
   # convert Unix-style newline characters into Windows-style
   configure_file ("${CMAKE_SOURCE_DIR}/README.md" "${CMAKE_BINARY_DIR}/README.TXT" NEWLINE_STYLE WIN32)
@@ -270,4 +291,3 @@ else()
   include(CPack)
 
 endif()
-
