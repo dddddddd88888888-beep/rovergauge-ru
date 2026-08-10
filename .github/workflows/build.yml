@@ -2,7 +2,7 @@ name: Build Rovergauge EXE
 
 on:
   workflow_dispatch:
-  push:
+  # push:    # <-- Сборка больше не запустится автоматически
 
 jobs:
   build-windows:
