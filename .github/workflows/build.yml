@@ -9,9 +9,18 @@ jobs:
     runs-on: windows-latest
     
     steps:
-      - name: Checkout Code
+      - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
+        with:
+          submodules: 'false' # Мы скачаем библиотеку отдельно следующим шагом
 
+      # --- НОВЫЙ ШАГ: Скачивание библиотеки libcomm14cux ---
+      - name: Checkout libcomm14cux
+        uses: actions/checkout@v4
+        with:
+          repository: colinbourassa/libcomm14cux
+          path: libcomm14cux # Скачиваем в папку libcomm14cux в корне проекта
+          
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -22,18 +31,26 @@ jobs:
           modules: 'qtcharts'
           cache: true
 
-      # Инициализация среды MSVC без явного указания версии toolset
-      # Это позволит использовать версию по умолчанию (VS2026 / v14.4+)
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
-        # Параметр toolset удален, чтобы действие само выбрало доступную версию
 
       - name: Configure CMake
         run: |
           Write-Host "VSINSTALLDIR: $env:VSINSTALLDIR"
           Write-Host "Qt5_DIR: $env:Qt5_DIR"
-          # Используем генератор Visual Studio 18 2026, так как на сервере установлена именно эта версия
-          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
+          Write-Host "Current Directory: $(Get-Location)"
+          
+          # Проверяем, что библиотека скачалась
+          if (Test-Path "libcomm14cux") {
+            Write-Host "libcomm14cux found!"
+            # Указываем CMake искать библиотеки и в папке Qt, и в папке libcomm14cux
+            $cmake_prefix = "$env:Qt5_DIR;${{ github.workspace }}/libcomm14cux"
+          } else {
+            Write-Error "libcomm14cux NOT found!"
+            exit 1
+          }
+          
+          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$cmake_prefix"
         shell: pwsh
           
       - name: Build Project
@@ -50,4 +67,4 @@ jobs:
           name: rovergauge-built
           path: build/Release/
           retention-days: 5
-          if-no-files-found: error
+          if-no-files-found: error   
