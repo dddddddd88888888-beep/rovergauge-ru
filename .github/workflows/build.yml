@@ -12,14 +12,12 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # 1. Скачиваем исходники библиотеки
       - name: Checkout libcomm14cux
         uses: actions/checkout@v4
         with:
           repository: colinbourassa/libcomm14cux
           path: temp_libcomm
 
-      # 2. Копируем заголовки в проект (чтобы компилятор видел их)
       - name: Copy Headers
         run: |
           if (Test-Path "temp_libcomm/src/comm14cux.h") {
@@ -42,31 +40,43 @@ jobs:
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 3. СБОРКА БИБЛИОТЕКИ libcomm14cux.lib
+      # --- ИСПРАВЛЕННЫЙ ШАГ СБОРКИ БИБЛИОТЕКИ ---
       - name: Build libcomm14cux
         run: |
-          Write-Host "Building libcomm14cux library..."
-          cmake -B temp_libcomm/build -G "Visual Studio 18 2026" -A x64 -S temp_libcomm
+          Write-Host "Building libcomm14cux library with updated CMake policy..."
+          
+          # Добавляем -DCMAKE_POLICY_VERSION_MINIMUM=3.5 для обхода ошибки совместимости
+          cmake -B temp_libcomm/build `
+            -G "Visual Studio 18 2026" `
+            -A x64 `
+            -S temp_libcomm `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            
           cmake --build temp_libcomm/build --config Release
           
-          # Копируем готовый .lib файл в корень рабочей папки, чтобы основной проект его нашел
+          # Поиск и копирование .lib файла
+          $libFound = $false
           if (Test-Path "temp_libcomm/build/Release/comm14cux.lib") {
              Copy-Item "temp_libcomm/build/Release/comm14cux.lib" -Destination "." -Force
-             Write-Host "libcomm14cux.lib copied to root."
+             Write-Host "Found and copied comm14cux.lib"
+             $libFound = $true
           } elseif (Test-Path "temp_libcomm/build/Release/libcomm14cux.lib") {
              Copy-Item "temp_libcomm/build/Release/libcomm14cux.lib" -Destination "." -Force
-             Write-Host "libcomm14cux.lib copied to root."
-          } else {
+             Write-Host "Found and copied libcomm14cux.lib"
+             $libFound = $true
+          }
+          
+          if (-not $libFound) {
              Write-Error "Failed to find compiled .lib file!"
-             Get-ChildItem -Recurse temp_libcomm/build -Filter "*.lib"
+             Write-Host "Contents of Release folder:"
+             Get-ChildItem "temp_libcomm/build/Release"
              exit 1
           }
         shell: pwsh
+      # -------------------------------------------
 
-      # 4. Сборка основной программы
       - name: Configure Rovergauge
         run: |
-          # Теперь .lib файл лежит в корне, и find_library должен его найти
           cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
@@ -76,7 +86,6 @@ jobs:
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-          # Копируем DLL библиотеки (если она собралась или была в репозитории)
           if (Test-Path "temp_libcomm/build/Release/comm14cux.dll") { Copy-Item "temp_libcomm/build/Release/comm14cux.dll" "build/Release/" }
           if (Test-Path "temp_libcomm/build/Release/libcomm14cux.dll") { Copy-Item "temp_libcomm/build/Release/libcomm14cux.dll" "build/Release/" }
         shell: pwsh
