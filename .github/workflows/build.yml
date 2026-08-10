@@ -21,18 +21,25 @@ jobs:
           arch: 'win64_msvc2019_64'
           modules: 'qtcharts'
           cache: true
-          # Важно: не устанавливаем dir вручную, чтобы действие само настроило переменные окружения
 
-      - name: Setup MSVC
+      # Явная инициализация среды разработчика VS2022
+      - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
-        # Этот шаг явно активирует компилятор Visual Studio в консоли, что решает ошибку "not found"
+        with:
+          toolset: '14.3' # Явно указываем версию инструментария VS2022
 
       - name: Configure CMake
         run: |
-          # Выводим путь для отладки
-          Write-Host "Qt5_DIR is: $env:Qt5_DIR"
-          # Используем Qt5_DIR вместо ручного пути, так как действие install-qt-action экспортирует его
-          cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
+          # Проверяем, видна ли среда MSVC
+          if (-not $env:VSINSTALLDIR) {
+            Write-Error "Visual Studio environment not loaded. VSINSTALLDIR is empty."
+            exit 1
+          }
+          Write-Host "Using Visual Studio from: $env:VSINSTALLDIR"
+          Write-Host "Qt5_DIR: $env:Qt5_DIR"
+          
+          # Добавляем -T host=x64 для явного указания 64-битной среды
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -T host=x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
       - name: Build Project
