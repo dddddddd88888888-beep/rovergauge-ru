@@ -12,39 +12,20 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # 1. Скачиваем библиотеку libcomm14cux
+      # 1. Скачиваем исходники библиотеки
       - name: Checkout libcomm14cux
         uses: actions/checkout@v4
         with:
           repository: colinbourassa/libcomm14cux
           path: temp_libcomm
 
-      # 2. Копируем файлы библиотеки ВНУТРЬ проекта, чтобы компилятор их точно увидел
-      - name: Copy libcomm14cux headers to src
+      # 2. Копируем заголовки в проект (чтобы компилятор видел их)
+      - name: Copy Headers
         run: |
-          Write-Host "Copying libcomm14cux files..."
-          
-          $srcPath = "temp_libcomm/src"
-          $destPath = "src" # Папка src основного проекта
-          
-          # Проверяем, где лежат заголовки в скачанной библиотеке
-          if (Test-Path "$srcPath/comm14cux.h") {
-              Copy-Item "$srcPath/*.h" -Destination $destPath -Force
-              Copy-Item "$srcPath/*.cpp" -Destination $destPath -Force # Копируем и исходники, если нужно
-              Write-Host "Headers copied from temp_libcomm/src to src"
+          if (Test-Path "temp_libcomm/src/comm14cux.h") {
+            Copy-Item "temp_libcomm/src/*.h" -Destination "src" -Force
           } elseif (Test-Path "temp_libcomm/comm14cux.h") {
-              Copy-Item "temp_libcomm/*.h" -Destination $destPath -Force
-              Write-Host "Headers copied from temp_libcomm root to src"
-          } else {
-              Write-Error "comm14cux.h not found in temp_libcomm!"
-              Get-ChildItem -Recurse temp_libcomm -Filter "*.h"
-              exit 1
-          }
-          
-          # Копируем библиотеку (.lib/.dll) в корень для удобства линковки
-          if (Test-Path "temp_libcomm/Release/libcomm14cux.lib") {
-              Copy-Item "temp_libcomm/Release/*" -Destination "." -Force
-              Write-Host "Library files copied to root"
+            Copy-Item "temp_libcomm/*.h" -Destination "src" -Force
           }
         shell: pwsh
 
@@ -61,26 +42,43 @@ jobs:
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Configure CMake
+      # 3. СБОРКА БИБЛИОТЕКИ libcomm14cux.lib
+      - name: Build libcomm14cux
         run: |
-          Write-Host "Configuring CMake..."
-          # Теперь заголовки лежат прямо в папке src проекта, 
-          # поэтому CMake найдет их автоматически через include_directories в CMakeLists.txt
+          Write-Host "Building libcomm14cux library..."
+          cmake -B temp_libcomm/build -G "Visual Studio 18 2026" -A x64 -S temp_libcomm
+          cmake --build temp_libcomm/build --config Release
           
-          cmake -B build `
-            -G "Visual Studio 18 2026" `
-            -A x64 `
-            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
+          # Копируем готовый .lib файл в корень рабочей папки, чтобы основной проект его нашел
+          if (Test-Path "temp_libcomm/build/Release/comm14cux.lib") {
+             Copy-Item "temp_libcomm/build/Release/comm14cux.lib" -Destination "." -Force
+             Write-Host "libcomm14cux.lib copied to root."
+          } elseif (Test-Path "temp_libcomm/build/Release/libcomm14cux.lib") {
+             Copy-Item "temp_libcomm/build/Release/libcomm14cux.lib" -Destination "." -Force
+             Write-Host "libcomm14cux.lib copied to root."
+          } else {
+             Write-Error "Failed to find compiled .lib file!"
+             Get-ChildItem -Recurse temp_libcomm/build -Filter "*.lib"
+             exit 1
+          }
+        shell: pwsh
+
+      # 4. Сборка основной программы
+      - name: Configure Rovergauge
+        run: |
+          # Теперь .lib файл лежит в корне, и find_library должен его найти
+          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
-      - name: Build Project
+      - name: Build Rovergauge
         run: cmake --build build --config Release
           
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-          # Копируем DLL библиотеки рядом с exe, если она есть
-          if (Test-Path "libcomm14cux.dll") { Copy-Item "libcomm14cux.dll" "build/Release/" }
+          # Копируем DLL библиотеки (если она собралась или была в репозитории)
+          if (Test-Path "temp_libcomm/build/Release/comm14cux.dll") { Copy-Item "temp_libcomm/build/Release/comm14cux.dll" "build/Release/" }
+          if (Test-Path "temp_libcomm/build/Release/libcomm14cux.dll") { Copy-Item "temp_libcomm/build/Release/libcomm14cux.dll" "build/Release/" }
         shell: pwsh
 
       - name: Upload EXE
