@@ -27,16 +27,16 @@ jobs:
 
       - name: Configure Rovergauge
         run: |
-          Write-Host "Cleaning build cache to apply CMakeLists.txt changes..."
-          
-          # КРИТИЧЕСКИ ВАЖНО: Удаляем папку build, чтобы сбросить кэш CMake
-          # Это заставит систему забыть про старый comm14cux.lib
+          Write-Host "=== Очистка кэша CMake ==="
+          # Критически важный шаг: удаляем папку build, чтобы сбросить старую конфигурацию
           if (Test-Path "build") {
               Remove-Item -Recurse -Force "build"
-              Write-Host "Build directory cleaned successfully."
+              Write-Host "Папка build удалена. Кэш очищен."
+          } else {
+              Write-Host "Папка build не найдена, создаем новую конфигурацию."
           }
           
-          Write-Host "Configuring project with new settings..."
+          Write-Host "Запуск конфигурации проекта..."
           cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
