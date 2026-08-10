@@ -12,7 +12,7 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # 1. Скачиваем готовую библиотеку по вашей ссылке
+      # 1. Скачивание готовой библиотеки
       - name: Download libcomm14cux Binary
         run: |
           Write-Host "Downloading pre-built libcomm14cux..."
@@ -20,30 +20,24 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile "libcomm.zip"
           Expand-Archive -Path "libcomm.zip" -DestinationPath "libcomm_bin" -Force
           
-          # Проверяем структуру и копируем файлы
-          # Обычно в архиве папки bin и lib
-          if (Test-Path "libcomm_bin/bin/comm14cux.dll") {
-             Copy-Item "libcomm_bin/bin/*" -Destination "." -Force
-             Copy-Item "libcomm_bin/lib/*" -Destination "." -Force
-             Write-Host "Files copied from bin/lib folders."
-          } else {
-             # Если файлы прямо в корне
-             Copy-Item "libcomm_bin/*" -Destination "." -Force
-             Write-Host "Files copied from root."
-          }
+          # Выводим структуру папок для отладки
+          Write-Host "Archive contents:"
+          Get-ChildItem -Recurse "libcomm_bin"
           
-          # Выводим список файлов для отладки
-          Get-ChildItem "." -Filter "*.lib"
-          Get-ChildItem "." -Filter "*.dll"
+          # Копируем все .lib и .dll файлы в корень рабочей директории
+          Get-ChildItem -Path "libcomm_bin" -Recurse -Include "*.lib","*.dll" | Copy-Item -Destination "." -Force
+          
+          Write-Host "Files available in root:"
+          Get-ChildItem -Filter "*.lib"
+          Get-ChildItem -Filter "*.dll"
         shell: pwsh
 
-      # 2. Скачиваем заголовочный файл (comm14cux.h) из исходников
+      # 2. Получение заголовочного файла
       - name: Get Header File
         run: |
           git clone --depth 1 https://github.com/colinbourassa/libcomm14cux.git temp_src
           if (Test-Path "temp_src/src/comm14cux.h") {
             Copy-Item "temp_src/src/*.h" -Destination "src" -Force
-            Write-Host "Header file copied to src/"
           }
           Remove-Item -Recurse -Force temp_src
         shell: pwsh
@@ -63,9 +57,13 @@ jobs:
 
       - name: Configure Rovergauge
         run: |
-          Write-Host "Configuring main project..."
-          # Файл .lib теперь лежит в корне, CMake найдет его через find_library
-          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
+          Write-Host "Configuring CMake..."
+          # Явно указываем путь поиска библиотек в текущей папке, где лежат .lib файлы
+          cmake -B build `
+            -G "Visual Studio 18 2026" `
+            -A x64 `
+            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}" `
+            -DCMAKE_LIBRARY_PATH="${{ github.workspace }}"
         shell: pwsh
           
       - name: Build Rovergauge
@@ -74,9 +72,8 @@ jobs:
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-          # Копируем DLL библиотеки в папку с программой
-          if (Test-Path "comm14cux.dll") { Copy-Item "comm14cux.dll" "build/Release/" }
-          if (Test-Path "libcomm14cux.dll") { Copy-Item "libcomm14cux.dll" "build/Release/" }
+          # Копируем DLL рядом с exe
+          Get-ChildItem -Filter "*.dll" | Copy-Item -Destination "build/Release/" -Force
         shell: pwsh
 
       - name: Upload EXE
