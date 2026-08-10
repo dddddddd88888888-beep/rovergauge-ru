@@ -712,7 +712,7 @@
    </property>
    <widget class="QMenu" name="m_fileMenu">
     <property name="title">
-     <string>&amp;File</string>
+     <string>&amp;Файл</string>
     </property>
     <addaction name="m_saveROMImageAction"/>
     <addaction name="separator"/>
@@ -720,7 +720,7 @@
    </widget>
    <widget class="QMenu" name="m_optionsMenu">
     <property name="title">
-     <string>&amp;Options</string>
+     <string>&amp;Параметры</string>
     </property>
     <addaction name="m_showFaultCodesAction"/>
     <addaction name="m_idleAirControlAction"/>
@@ -729,7 +729,7 @@
    </widget>
    <widget class="QMenu" name="m_helpMenu">
     <property name="title">
-     <string>&amp;Help</string>
+     <string>&amp;Помощь</string>
     </property>
     <addaction name="m_helpContentsAction"/>
     <addaction name="m_helpAboutAction"/>
@@ -770,7 +770,7 @@
   </action>
   <action name="m_exitAction">
    <property name="text">
-    <string>&amp;Exit</string>
+    <string>&amp;Выход</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+Q</string>
