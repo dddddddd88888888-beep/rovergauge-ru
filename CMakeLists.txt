@@ -197,6 +197,10 @@ if (MINGW)
 #  target_link_libraries (rovergauge ${COMM14CUX_DLL} Qt5::Widgets)
 
 
+# Явно указываем путь к библиотеке в корне проекта
+# Скрипт сборки копирует comm14cux.lib именно сюда
+set (COMM14CUX_DLL "${CMAKE_SOURCE_DIR}/comm14cux.lib")
+
 
 # Явно указываем путь к библиотеке в корне исходного кода
 # Мы копируем сгенерированный comm14cux.lib именно туда
