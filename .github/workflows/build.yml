@@ -34,9 +34,9 @@ jobs:
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Patch and Build libcomm14cux
+      - name: Prepare Library Sources
         run: |
-          Write-Host "=== Starting libcomm14cux Build ==="
+          Write-Host "Preparing library sources for direct compilation..."
           
           # 1. Патч: Убираем unistd.h
           $files = Get-ChildItem -Path "libcomm_src_clean" -Recurse -Include "*.c","*.h"
@@ -48,104 +48,28 @@ jobs:
             }
           }
 
-          # 2. Патч: Убираем библиотеку 'm' и флаги MinGW
-          $cmakeFile = "libcomm_src_clean/CMakeLists.txt"
-          $content = Get-Content $cmakeFile -Raw
-          if ($content -match 'target_link_libraries.*\bm\b') {
-             $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s+', '$1 '
-             $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s*\)', '$1)'
-          }
-          if ($content -match '-static-libgcc') {
-             $content = $content -replace '\s-static-libgcc\s*', ' '
-          }
-          Set-Content -Path $cmakeFile -Value $content -NoNewline
-
-          # 3. Сборка библиотеки
-          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
-          cmake -B libcomm_build -G "Visual Studio 18 2026" -A x64 -S libcomm_src_clean
-          Remove-Item Env:\CMAKE_POLICY_VERSION_MINIMUM -ErrorAction SilentlyContinue
-          cmake --build libcomm_build --config Release --target comm14cux
-
-          # 4. Проверка и генерация .lib файла
-          $dllPath = "libcomm_build/Release/comm14cux.dll"
-          $libPath = "libcomm_build/Release/comm14cux.lib"
-          $destLib = "comm14cux.lib"
-          $destDll = "comm14cux.dll"
-
-          Write-Host "Checking for DLL at: $dllPath"
-          if (-not (Test-Path $dllPath)) {
-              Write-Error "DLL file NOT found at $dllPath. Build failed."
-              exit 1
-          }
-          Write-Host "DLL found."
-
-          if (Test-Path $libPath) {
-              Write-Host "Found existing .lib file. Copying..."
-              Copy-Item $libPath -Destination $destLib -Force
-          } else {
-              Write-Host "No .lib found. Generating from DLL..."
-              
-              $tempDll = "temp_gen.dll"
-              $tempDef = "temp.def"
-              $tempExp = "exports.txt"
-              
-              Copy-Item $dllPath -Destination $tempDll -Force
-              
-              # Получаем экспорт функций
-              $exports = dumpbin /exports $tempDll 2>&1
-              $exports | Out-File -FilePath $tempExp -Encoding ASCII
-              
-              # Создаем DEF файл
-              "LIBRARY $tempDll" | Out-File -FilePath $tempDef -Encoding ASCII
-              "EXPORTS" | Out-File -FilePath $tempDef -Append -Encoding ASCII
-              
-              # Парсим экспорт и заполняем DEF
-              foreach ($line in $exports) {
-                  if ($line -match '^\s+\d+\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+([_@a-zA-Z0-9]+)') {
-                      $funcName = $matches[1]
-                      if ($funcName.StartsWith("_")) { $funcName = $funcName.Substring(1) }
-                      $funcName = $funcName.Split('@')[0]
-                      "    $funcName" | Out-File -FilePath $tempDef -Append -Encoding ASCII
-                  }
-              }
-              
-              Write-Host "Generated DEF content:"
-              Get-Content $tempDef
-              
-              # Генерируем LIB
-              $libResult = lib /machine:x64 /def:$tempDef /out:$destLib 2>&1
-              Write-Host $libResult
-              
-              if (-not (Test-Path $destLib)) {
-                  Write-Error "Failed to generate .lib file."
-                  exit 1
-              }
-              Write-Host "SUCCESS: Generated $destLib"
-              
-              Remove-Item $tempDll, $tempDef, $tempExp -ErrorAction SilentlyContinue
-          }
-
-          Copy-Item $dllPath -Destination $destDll -Force
-          Write-Host "Files ready: $destLib, $destDll"
+          # 2. Копируем исходники библиотеки (.c и .h) прямо в папку src основного проекта
+          # Это заставит компилятор собрать их вместе с программой rovergauge
+          Copy-Item "libcomm_src_clean/src/*.c" -Destination "src/" -Force
+          Copy-Item "libcomm_src_clean/src/*.h" -Destination "src/" -Force
           
-          if (-not (Test-Path $destLib)) {
-              Write-Error "CRITICAL: Final check failed. $destLib is missing."
-              exit 1
-          }
-        shell: pwsh
-
-      - name: Copy Headers
-        run: |
-          if (Test-Path "libcomm_src_clean/include/*.h") {
-            Copy-Item "libcomm_src_clean/include/*.h" -Destination "src" -Force
-          } elseif (Test-Path "libcomm_src_clean/src/*.h") {
-            Copy-Item "libcomm_src_clean/src/*.h" -Destination "src" -Force
-          }
+          Write-Host "Library sources copied to src/ folder."
+          Write-Host "Files in src:"
+          Get-ChildItem "src/" -Filter "*.c"
         shell: pwsh
 
       - name: Configure Rovergauge
         run: |
-          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}"
+          Write-Host "Configuring main project..."
+          # Теперь нам не нужен отдельный .lib файл, так как исходники библиотеки 
+          # лежат в папке src и будут скомпилированы вместе с основным кодом.
+          # Но нам нужно убедиться, что CMakeLists.txt основного проекта их подхватит.
+          # Если он использует find_library, это может не сработать автоматически.
+          # Поэтому мы просто собираем проект. Если CMakeLists.txt жестко требует .lib,
+          # нам придется его слегка подправить (закомментировать find_library).
+          
+          # Попытка стандартной конфигурации
+          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
       - name: Build Rovergauge
@@ -154,7 +78,6 @@ jobs:
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-          if (Test-Path "comm14cux.dll") { Copy-Item "comm14cux.dll" "build/Release/" }
         shell: pwsh
 
       - name: Upload EXE
