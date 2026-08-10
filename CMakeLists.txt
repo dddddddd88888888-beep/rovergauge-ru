@@ -64,6 +64,7 @@ add_definitions ("-DROVERGAUGE_VER_MAJOR=${ROVERGAUGE_VER_MAJOR}"
 
 add_executable (rovergauge
     src/main.cpp
+    src/mainwindow.cpp
     src/simulatedecudata.cpp
     src/simulatedecudata.h
     src/cuxinterface.cpp
@@ -102,6 +103,11 @@ add_executable (rovergauge
     src/analogwidgets/manometer.h
     src/analogwidgets/abstractmeter.cpp
     src/analogwidgets/abstractmeter.h
+    src/data.c
+    src/protocol.c
+    src/setup.c
+    # read14cux.c и write14cux.c обычно не нужны, это отдельные утилиты.
+    # Если они не требуются для работы программы, добавлять их не нужно.
     ${UI_SOURCE}
     ${RG_RESOURCE}
     rovergauge.rc)
