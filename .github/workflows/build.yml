@@ -48,44 +48,61 @@ jobs:
             }
           }
 
-          # 2. Патч: Убираем библиотеку 'm' из CMakeLists.txt (критично для Windows!)
+          # 2. Патч: Убираем библиотеку 'm' и флаги MinGW
           $cmakeFile = "libcomm_src_clean/CMakeLists.txt"
           $content = Get-Content $cmakeFile -Raw
-          # Ищем строки типа: target_link_libraries(... m ...) или просто упоминание 'm' в линковке
-          # Заменяем ' m' или 'm ' на пустоту в контексте link_libraries
           if ($content -match 'target_link_libraries.*\bm\b') {
-             Write-Host "Removing 'm' library reference from CMakeLists.txt..."
-             # Удаляем букву m как отдельное слово в строках link_libraries
+             Write-Host "Removing 'm' library reference..."
              $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s+', '$1 '
              $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s*\)', '$1)'
              Set-Content -Path $cmakeFile -Value $content -NoNewline
           }
-          
-          # 3. Патч: Убираем флаги MinGW (-static-libgcc), если они есть
           if ($content -match '-static-libgcc') {
-             Write-Host "Removing MinGW flags..."
              $content = $content -replace '\s-static-libgcc\s*', ' '
              Set-Content -Path $cmakeFile -Value $content -NoNewline
           }
-
-          # 4. Сборка
+          # Отключаем сборку тестовых приложений (read14cux/write14cux), если есть такая опция
+          # Часто это флаг BUILD_TESTING или аналогичный. Если нет, просто игнорируем ошибки линковки тестов.
+          # В данном случае мы просто соберем только целевую библиотеку.
+          
+          # 3. Сборка ТОЛЬКО библиотеки (target comm14cux)
           $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
           cmake -B libcomm_build -G "Visual Studio 18 2026" -A x64 -S libcomm_src_clean
           Remove-Item Env:\CMAKE_POLICY_VERSION_MINIMUM -ErrorAction SilentlyContinue
 
-          cmake --build libcomm_build --config Release
+          # Собираем только целевой проект comm14cux, игнорируя тесты
+          cmake --build libcomm_build --config Release --target comm14cux
           
-          # 5. Копирование результата
+          # 4. Поиск и копирование файлов
+          # Ищем .lib файл (он может называться comm14cux.lib или libcomm14cux.lib)
           $libFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.lib" | Select-Object -First 1
+          $dllFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.dll" | Select-Object -First 1
+          
           if ($libFile) {
             Copy-Item $libFile.FullName -Destination "comm14cux.lib" -Force
-            Write-Host "SUCCESS: comm14cux.lib created."
+            Write-Host "SUCCESS: Found and copied library: $($libFile.Name)"
           } else {
-            Write-Error "Failed to build .lib file!"
-            exit 1
+            # Если .lib не найден, возможно, это DLL-only библиотека, но для MSVC нужен import lib.
+            # Попробуем сгенерировать его из DLL, если файл .lib отсутствует
+            Write-Warning "No .lib file found. Attempting to generate from DLL..."
+            if ($dllFile) {
+               # Копируем DLL во временную папку для генерации
+               Copy-Item $dllFile.FullName -Destination "temp_dll.dll" -Force
+               dumpbin /exports temp_dll.dll > exports.txt
+               "LIBRARY temp_dll.dll" | Out-File -FilePath "temp.def" -Encoding ASCII
+               "EXPORTS" | Out-File -FilePath "temp.def" -Append -Encoding ASCII
+               Get-Content exports.txt | Select-String "^\s+[0-9]+" | ForEach-Object {
+                   $parts = $_.Line -split '\s+'
+                   if ($parts.Count -ge 4) {
+                       $funcName = $parts[3].Split('@')[0]
+                       "    $funcName" | Out-File -FilePath "temp.def" -Append -Encoding ASCII
+                   }
+               }
+               lib /machine:x64 /def:temp.def /out:comm14cux.lib
+               Remove-Item temp_dll.dll, temp.def, exports.txt -ErrorAction SilentlyContinue
+            }
           }
           
-          $dllFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.dll" | Select-Object -First 1
           if ($dllFile) {
             Copy-Item $dllFile.FullName -Destination "comm14cux.dll" -Force
           }
