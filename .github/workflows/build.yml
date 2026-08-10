@@ -12,17 +12,13 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # 1. Скачивание исходников библиотеки
       - name: Download libcomm14cux Source
         run: |
           Write-Host "Downloading libcomm14cux source..."
           $url = "https://github.com/colinbourassa/libcomm14cux/archive/refs/tags/2.1.3.zip"
           Invoke-WebRequest -Uri $url -OutFile "libcomm_src.zip"
           Expand-Archive -Path "libcomm_src.zip" -DestinationPath "libcomm_src" -Force
-          
-          # Переименовываем папку для удобства
           Move-Item -Path "libcomm_src/libcomm14cux-2.1.3" -Destination "libcomm_src_clean" -Force
-          Write-Host "Source downloaded."
         shell: pwsh
 
       - name: Install Qt
@@ -38,40 +34,49 @@ jobs:
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 2. Сборка библиотеки из исходников с патчем для Windows
-      - name: Build libcomm14cux from Source
+      - name: Patch and Build libcomm14cux
         run: |
-          Write-Host "Building libcomm14cux from source..."
+          Write-Host "Patching and building libcomm14cux..."
           
-          # Патчим файлы: убираем unistd.h, которого нет в Windows
+          # 1. Патч: Убираем unistd.h
           $files = Get-ChildItem -Path "libcomm_src_clean" -Recurse -Include "*.c","*.h"
           foreach ($file in $files) {
             $content = Get-Content $file.FullName -Raw
             if ($content -match '#include\s*<unistd\.h>') {
-              Write-Host "Patching unistd.h in $($file.Name)..."
-              $content = $content -replace '#include\s*<unistd\.h>', '// #include <unistd.h> // Removed for Windows'
+              $content = $content -replace '#include\s*<unistd\.h>', '// #include <unistd.h>'
               Set-Content -Path $file.FullName -Value $content -NoNewline
             }
           }
 
-          # Устанавливаем переменную окружения для CMake (исправление ошибки версии)
-          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+          # 2. Патч: Убираем библиотеку 'm' из CMakeLists.txt (критично для Windows!)
+          $cmakeFile = "libcomm_src_clean/CMakeLists.txt"
+          $content = Get-Content $cmakeFile -Raw
+          # Ищем строки типа: target_link_libraries(... m ...) или просто упоминание 'm' в линковке
+          # Заменяем ' m' или 'm ' на пустоту в контексте link_libraries
+          if ($content -match 'target_link_libraries.*\bm\b') {
+             Write-Host "Removing 'm' library reference from CMakeLists.txt..."
+             # Удаляем букву m как отдельное слово в строках link_libraries
+             $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s+', '$1 '
+             $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s*\)', '$1)'
+             Set-Content -Path $cmakeFile -Value $content -NoNewline
+          }
+          
+          # 3. Патч: Убираем флаги MinGW (-static-libgcc), если они есть
+          if ($content -match '-static-libgcc') {
+             Write-Host "Removing MinGW flags..."
+             $content = $content -replace '\s-static-libgcc\s*', ' '
+             Set-Content -Path $cmakeFile -Value $content -NoNewline
+          }
 
-          # Конфигурируем и собираем
-          cmake -B libcomm_build `
-            -G "Visual Studio 18 2026" `
-            -A x64 `
-            -S libcomm_src_clean
-            
-          # Сбрасываем переменную
+          # 4. Сборка
+          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+          cmake -B libcomm_build -G "Visual Studio 18 2026" -A x64 -S libcomm_src_clean
           Remove-Item Env:\CMAKE_POLICY_VERSION_MINIMUM -ErrorAction SilentlyContinue
 
           cmake --build libcomm_build --config Release
           
-          # Копируем результат
+          # 5. Копирование результата
           $libFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.lib" | Select-Object -First 1
-          $dllFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.dll" | Select-Object -First 1
-          
           if ($libFile) {
             Copy-Item $libFile.FullName -Destination "comm14cux.lib" -Force
             Write-Host "SUCCESS: comm14cux.lib created."
@@ -80,13 +85,13 @@ jobs:
             exit 1
           }
           
+          $dllFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.dll" | Select-Object -First 1
           if ($dllFile) {
             Copy-Item $dllFile.FullName -Destination "comm14cux.dll" -Force
           }
         shell: pwsh
 
-      # 3. Копирование заголовков в проект
-      - name: Copy Headers to Main Project
+      - name: Copy Headers
         run: |
           if (Test-Path "libcomm_src_clean/include/*.h") {
             Copy-Item "libcomm_src_clean/include/*.h" -Destination "src" -Force
@@ -95,7 +100,6 @@ jobs:
           }
         shell: pwsh
 
-      # 4. Сборка основной программы
       - name: Configure Rovergauge
         run: |
           cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}"
