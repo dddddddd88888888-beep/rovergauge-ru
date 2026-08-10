@@ -1,19 +1,17 @@
 name: Build Rovergauge EXE
 
 on:
-  workflow_dispatch:  # Позволяет запускать сборку вручную через кнопку
-  push:               # Автоматический запуск при изменении кода
+  workflow_dispatch:
+  push:
 
 jobs:
   build-windows:
     runs-on: windows-latest
     
     steps:
-      # 1. Скачивание исходного кода
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Установка Qt (версия 5.15.2 для MSVC 2019, совместимая с VS2022)
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -22,33 +20,33 @@ jobs:
           target: 'desktop'
           arch: 'win64_msvc2019_64'
           modules: 'qtcharts'
-          dir: ${{ github.workspace }}/Qt
           cache: true
+          # Важно: не устанавливаем dir вручную, чтобы действие само настроило переменные окружения
 
-      # 3. Настройка CMake
-      # Используем переменную окружения Qt5_DIR, которую автоматически создает предыдущий шаг
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        # Этот шаг явно активирует компилятор Visual Studio в консоли, что решает ошибку "not found"
+
       - name: Configure CMake
         run: |
-          cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="${{ env.Qt5_DIR }}"
+          # Выводим путь для отладки
+          Write-Host "Qt5_DIR is: $env:Qt5_DIR"
+          # Используем Qt5_DIR вместо ручного пути, так как действие install-qt-action экспортирует его
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
-      # 4. Сборка проекта (Режим Release)
       - name: Build Project
-        run: |
-          cmake --build build --config Release
+        run: cmake --build build --config Release
           
-      # 5. Копирование зависимостей Qt (DLL файлы)
       - name: Deploy Qt Dependencies
         run: |
-          $qtBinPath = "${{ env.Qt5_DIR }}/bin"
-          & "$qtBinPath/windeployqt.exe" --release build/Release/rovergauge.exe
+          & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
         shell: pwsh
 
-      # 6. Загрузка готового EXE и библиотек
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
           name: rovergauge-built
           path: build/Release/
           retention-days: 5
-          if-no-files-found: error   
+          if-no-files-found: error
