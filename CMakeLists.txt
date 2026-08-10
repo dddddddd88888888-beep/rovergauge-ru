@@ -200,28 +200,12 @@ if (MINGW)
 #    message (SEND_ERROR "Could not find libcomm14cux!")
 #  endif ()
 
-#  target_link_libraries (rovergauge ${COMM14CUX_DLL} Qt5::Widgets)
+target_link_libraries (rovergauge Qt5::Widgets) 
 
 
 # Явно указываем путь к библиотеке в корне проекта
 # Скрипт сборки копирует comm14cux.lib именно сюда
-set (COMM14CUX_DLL "${CMAKE_SOURCE_DIR}/comm14cux.lib")
-
-
-# Явно указываем путь к библиотеке в корне исходного кода
-# Мы копируем сгенерированный comm14cux.lib именно туда
-set (COMM14CUX_DLL "${CMAKE_SOURCE_DIR}/comm14cux.lib")
-
-# Проверка: если файла нет, выводим фатальную ошибку
-if(NOT EXISTS ${COMM14CUX_DLL})
-    message(FATAL_ERROR "Ошибка: Файл comm14cux.lib не найден в корне проекта (${CMAKE_SOURCE_DIR})!")
-    message("Убедитесь, что шаг сборки библиотеки в GitHub Actions прошел успешно.")
-else()
-    message (STATUS "Используем libcomm14cux из: ${COMM14CUX_DLL}")
-endif ()
-
-target_link_libraries (rovergauge ${COMM14CUX_DLL} Qt5::Widgets)   
-
+# set (COMM14CUX_DLL "${CMAKE_SOURCE_DIR}/comm14cux.lib")
 
 
   # convert Unix-style newline characters into Windows-style
