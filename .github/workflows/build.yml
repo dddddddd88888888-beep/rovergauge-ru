@@ -9,16 +9,18 @@ jobs:
     runs-on: windows-latest
     
     steps:
+      # 1. Скачивание основного кода rovergauge
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # Скачиваем библиотеку libcomm14cux в папку libcomm14cux
+      # 2. Скачивание библиотеки libcomm14cux в папку libcomm14cux
       - name: Checkout libcomm14cux
         uses: actions/checkout@v4
         with:
           repository: colinbourassa/libcomm14cux
           path: libcomm14cux
           
+      # 3. Установка Qt
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -29,40 +31,57 @@ jobs:
           modules: 'qtcharts'
           cache: true
 
+      # 4. Инициализация среды Visual Studio
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
+      # 5. Настройка CMake с правильными путями
       - name: Configure CMake
         run: |
           Write-Host "Configuring CMake..."
           
-          # Формируем пути явно
           $qtPath = "$env:Qt5_DIR"
-          $libcommPath = "${{ github.workspace }}/libcomm14cux"
+          $libcommBase = "${{ github.workspace }}/libcomm14cux"
           
-          # Проверяем наличие заголовочного файла
-          if (-not (Test-Path "$libcommPath/comm14cux.h")) {
-             Write-Error "Файл comm14cux.h не найден в папке $libcommPath. Проверьте структуру репозитория libcomm14cux."
-             exit 1
+          # Определяем путь к заголовкам. Обычно они в папке src.
+          $libcommSrc = "$libcommBase/src"
+          
+          # Проверка: если файла нет в src, проверяем корень или выводим ошибку
+          if (-not (Test-Path "$libcommSrc/comm14cux.h")) {
+             if (Test-Path "$libcommBase/comm14cux.h") {
+                 $libcommSrc = $libcommBase
+                 Write-Host "Found headers in root of libcomm14cux"
+             } else {
+                 Write-Error "Файл comm14cux.h не найден. Структура папки libcomm14cux:"
+                 Get-ChildItem -Recurse -Filter "comm14cux.h" $libcommBase
+                 exit 1
+             }
+          } else {
+             Write-Host "Found headers in libcomm14cux/src"
           }
 
-          # Передаем пути через CMAKE_INCLUDE_PATH и CMAKE_LIBRARY_PATH для надежности
+          Write-Host "Using include path: $libcommSrc"
+
+          # Запуск cmake с явным указанием путей включения и библиотек
           cmake -B build `
             -G "Visual Studio 18 2026" `
             -A x64 `
-            -DCMAKE_PREFIX_PATH="$qtPath;$libcommPath" `
-            -DCMAKE_INCLUDE_PATH="$qtPath/include;$libcommPath" `
-            -DCMAKE_LIBRARY_PATH="$qtPath/lib;$libcommPath"
+            -DCMAKE_PREFIX_PATH="$qtPath;$libcommBase" `
+            -DCMAKE_INCLUDE_PATH="$qtPath/include;$libcommSrc" `
+            -DCMAKE_LIBRARY_PATH="$qtPath/lib;$libcommBase"
         shell: pwsh
           
+      # 6. Сборка проекта
       - name: Build Project
         run: cmake --build build --config Release
           
+      # 7. Копирование DLL зависимостей Qt
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
         shell: pwsh
 
+      # 8. Загрузка готового артефакта
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
