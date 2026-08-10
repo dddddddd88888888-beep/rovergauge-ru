@@ -45,8 +45,20 @@ jobs:
           
       - name: Deploy Qt Dependencies
         run: |
-          & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-        shell: pwsh
+          Write-Host "Current PATH: $env:PATH"
+          Write-Host "Qt5_DIR: $env:Qt5_DIR"
+          
+          # Пробуем запустить просто по имени, так как bin должен быть в PATH
+          if (Get-Command windeployqt.exe -ErrorAction SilentlyContinue) {
+              windeployqt.exe --release build/Release/rovergauge.exe
+          } else {
+              # Если нет в PATH, формируем путь вручную, поднимаясь из lib/cmake в bin
+              # Путь обычно: .../Qt/5.15.2/msvc2019_64/lib/cmake -> .../Qt/5.15.2/msvc2019_64/bin
+              $correctPath = "$env:Qt5_DIR\..\..\bin\windeployqt.exe"
+              Write-Host "Falling back to: $correctPath"
+              & $correctPath --release build/Release/rovergauge.exe
+          }
+        shell: pwsh   
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
