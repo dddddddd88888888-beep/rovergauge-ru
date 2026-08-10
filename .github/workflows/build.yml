@@ -12,46 +12,38 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      # --- ИЗМЕНЕНИЕ: Скачиваем готовый релиз вместо сборки ---
-      - name: Download libcomm14cux Release
+      # 1. Скачиваем готовую библиотеку по вашей ссылке
+      - name: Download libcomm14cux Binary
         run: |
-          Write-Host "Downloading pre-built libcomm14cux for Windows..."
+          Write-Host "Downloading pre-built libcomm14cux..."
+          $url = "https://github.com/colinbourassa/libcomm14cux/releases/download/2.1.3/libcomm14cux-2.1.3-Windows-x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile "libcomm.zip"
+          Expand-Archive -Path "libcomm.zip" -DestinationPath "libcomm_bin" -Force
           
-          # Создаем папку для библиотеки
-          $libPath = "libcomm14cux"
-          New-Item -ItemType Directory -Force -Path $libPath | Out-Null
-          
-          # Ссылка на последний релиз (проверьте актуальную версию на GitHub releases)
-          # Обычно это zip архив с dll и lib файлами
-          $releaseUrl = "https://github.com/colinbourassa/libcomm14cux/releases/latest/download/libcomm14cux-Windows-x86_64.zip"
-          
-          # Попытка скачать. Если ссылка неверна, попробуем найти вручную или используем wget
-          try {
-            Invoke-WebRequest -Uri $releaseUrl -OutFile "libcomm.zip"
-            Expand-Archive -Path "libcomm.zip" -DestinationPath $libPath -Force
-            Write-Host "Downloaded and extracted successfully."
-            
-            # Перемещаем файлы в корень, если они в подпапке
-            if (Test-Path "$libPath/bin/comm14cux.dll") {
-               Copy-Item "$libPath/bin/*" -Destination "." -Force
-               Copy-Item "$libPath/lib/*" -Destination "." -Force
-            } elseif (Test-Path "$libPath/comm14cux.dll") {
-               Copy-Item "$libPath/*" -Destination "." -Force
-            }
-          } catch {
-            Write-Error "Failed to download release. Check the release URL on GitHub."
-            exit 1
+          # Проверяем структуру и копируем файлы
+          # Обычно в архиве папки bin и lib
+          if (Test-Path "libcomm_bin/bin/comm14cux.dll") {
+             Copy-Item "libcomm_bin/bin/*" -Destination "." -Force
+             Copy-Item "libcomm_bin/lib/*" -Destination "." -Force
+             Write-Host "Files copied from bin/lib folders."
+          } else {
+             # Если файлы прямо в корне
+             Copy-Item "libcomm_bin/*" -Destination "." -Force
+             Write-Host "Files copied from root."
           }
+          
+          # Выводим список файлов для отладки
+          Get-ChildItem "." -Filter "*.lib"
+          Get-ChildItem "." -Filter "*.dll"
         shell: pwsh
-      # ---------------------------------------------------------
 
-      # Копируем заголовки (они нужны в любом случае)
-      - name: Copy Headers from Source
+      # 2. Скачиваем заголовочный файл (comm14cux.h) из исходников
+      - name: Get Header File
         run: |
-          # Скачиваем исходники только ради заголовков, если их нет в релизе
           git clone --depth 1 https://github.com/colinbourassa/libcomm14cux.git temp_src
           if (Test-Path "temp_src/src/comm14cux.h") {
             Copy-Item "temp_src/src/*.h" -Destination "src" -Force
+            Write-Host "Header file copied to src/"
           }
           Remove-Item -Recurse -Force temp_src
         shell: pwsh
@@ -71,7 +63,8 @@ jobs:
 
       - name: Configure Rovergauge
         run: |
-          # Теперь .lib и .dll файлы лежат в корне, CMake найдет их через find_library
+          Write-Host "Configuring main project..."
+          # Файл .lib теперь лежит в корне, CMake найдет его через find_library
           cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
@@ -81,7 +74,7 @@ jobs:
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-          # Копируем DLL библиотеки рядом с exe
+          # Копируем DLL библиотеки в папку с программой
           if (Test-Path "comm14cux.dll") { Copy-Item "comm14cux.dll" "build/Release/" }
           if (Test-Path "libcomm14cux.dll") { Copy-Item "libcomm14cux.dll" "build/Release/" }
         shell: pwsh
