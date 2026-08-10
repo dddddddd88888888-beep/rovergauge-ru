@@ -30,15 +30,10 @@ jobs:
 
       - name: Configure CMake
         run: |
-          # Проверка переменных окружения
           Write-Host "VSINSTALLDIR: $env:VSINSTALLDIR"
           Write-Host "Qt5_DIR: $env:Qt5_DIR"
-          
-          # Генератор Visual Studio 17 2022 совместим с более новыми версиями, 
-          # но лучше использовать просто "Visual Studio 17 2022" или обновить генератор, если нужно.
-          # В среде VS2026 генератор может называться "Visual Studio 18 2026", но 17 2022 обычно работает.
-          # Попробуем стандартный вызов.
-          cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
+          # Используем генератор Visual Studio 18 2026, так как на сервере установлена именно эта версия
+          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
       - name: Build Project
