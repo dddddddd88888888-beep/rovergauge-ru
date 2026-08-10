@@ -12,19 +12,48 @@ jobs:
       - name: Checkout Rovergauge Code
         uses: actions/checkout@v4
 
-      - name: Checkout libcomm14cux
-        uses: actions/checkout@v4
-        with:
-          repository: colinbourassa/libcomm14cux
-          path: temp_libcomm
-
-      - name: Copy Headers
+      # --- ИЗМЕНЕНИЕ: Скачиваем готовый релиз вместо сборки ---
+      - name: Download libcomm14cux Release
         run: |
-          if (Test-Path "temp_libcomm/src/comm14cux.h") {
-            Copy-Item "temp_libcomm/src/*.h" -Destination "src" -Force
-          } elseif (Test-Path "temp_libcomm/comm14cux.h") {
-            Copy-Item "temp_libcomm/*.h" -Destination "src" -Force
+          Write-Host "Downloading pre-built libcomm14cux for Windows..."
+          
+          # Создаем папку для библиотеки
+          $libPath = "libcomm14cux"
+          New-Item -ItemType Directory -Force -Path $libPath | Out-Null
+          
+          # Ссылка на последний релиз (проверьте актуальную версию на GitHub releases)
+          # Обычно это zip архив с dll и lib файлами
+          $releaseUrl = "https://github.com/colinbourassa/libcomm14cux/releases/latest/download/libcomm14cux-Windows-x86_64.zip"
+          
+          # Попытка скачать. Если ссылка неверна, попробуем найти вручную или используем wget
+          try {
+            Invoke-WebRequest -Uri $releaseUrl -OutFile "libcomm.zip"
+            Expand-Archive -Path "libcomm.zip" -DestinationPath $libPath -Force
+            Write-Host "Downloaded and extracted successfully."
+            
+            # Перемещаем файлы в корень, если они в подпапке
+            if (Test-Path "$libPath/bin/comm14cux.dll") {
+               Copy-Item "$libPath/bin/*" -Destination "." -Force
+               Copy-Item "$libPath/lib/*" -Destination "." -Force
+            } elseif (Test-Path "$libPath/comm14cux.dll") {
+               Copy-Item "$libPath/*" -Destination "." -Force
+            }
+          } catch {
+            Write-Error "Failed to download release. Check the release URL on GitHub."
+            exit 1
           }
+        shell: pwsh
+      # ---------------------------------------------------------
+
+      # Копируем заголовки (они нужны в любом случае)
+      - name: Copy Headers from Source
+        run: |
+          # Скачиваем исходники только ради заголовков, если их нет в релизе
+          git clone --depth 1 https://github.com/colinbourassa/libcomm14cux.git temp_src
+          if (Test-Path "temp_src/src/comm14cux.h") {
+            Copy-Item "temp_src/src/*.h" -Destination "src" -Force
+          }
+          Remove-Item -Recurse -Force temp_src
         shell: pwsh
 
       - name: Install Qt
@@ -40,55 +69,9 @@ jobs:
       - name: Setup MSVC Environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build libcomm14cux
-        run: |
-          Write-Host "Building libcomm14cux library..."
-          
-          # 1. Создаем пустой файл README, если его нет (исправление ошибки configure_file)
-          if (-not (Test-Path "temp_libcomm/README")) {
-            New-Item -Path "temp_libcomm/README" -ItemType File -Force | Out-Null
-            Write-Host "Created missing README file."
-          }
-          
-          # 2. Запускаем CMake с корректным флагом политики (используем кавычки для значения)
-          # Используем переменную окружения вместо аргумента командной строки, чтобы избежать проблем с парсингом
-          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
-          
-          cmake -B temp_libcomm/build `
-            -G "Visual Studio 18 2026" `
-            -A x64 `
-            -S temp_libcomm
-            
-          # Сбрасываем переменную
-          Remove-Item Env:\CMAKE_POLICY_VERSION_MINIMUM -ErrorAction SilentlyContinue
-
-          # 3. Собираем библиотеку
-          cmake --build temp_libcomm/build --config Release
-          
-          # 4. Ищем и копируем .lib файл
-          $libFound = $false
-          $possibleNames = @("comm14cux.lib", "libcomm14cux.lib")
-          
-          foreach ($name in $possibleNames) {
-            $path = "temp_libcomm/build/Release/$name"
-            if (Test-Path $path) {
-              Copy-Item $path -Destination "." -Force
-              Write-Host "Found and copied: $name"
-              $libFound = $true
-              break
-            }
-          }
-          
-          if (-not $libFound) {
-            Write-Error "Failed to find compiled .lib file!"
-            Write-Host "Contents of Release folder:"
-            Get-ChildItem "temp_libcomm/build/Release" -ErrorAction SilentlyContinue
-            exit 1
-          }
-        shell: pwsh
-
       - name: Configure Rovergauge
         run: |
+          # Теперь .lib и .dll файлы лежат в корне, CMake найдет их через find_library
           cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR"
         shell: pwsh
           
@@ -98,8 +81,9 @@ jobs:
       - name: Deploy Qt Dependencies
         run: |
           & "$env:Qt5_DIR/bin/windeployqt.exe" --release build/Release/rovergauge.exe
-          if (Test-Path "temp_libcomm/build/Release/comm14cux.dll") { Copy-Item "temp_libcomm/build/Release/comm14cux.dll" "build/Release/" }
-          if (Test-Path "temp_libcomm/build/Release/libcomm14cux.dll") { Copy-Item "temp_libcomm/build/Release/libcomm14cux.dll" "build/Release/" }
+          # Копируем DLL библиотеки рядом с exe
+          if (Test-Path "comm14cux.dll") { Copy-Item "comm14cux.dll" "build/Release/" }
+          if (Test-Path "libcomm14cux.dll") { Copy-Item "libcomm14cux.dll" "build/Release/" }
         shell: pwsh
 
       - name: Upload EXE
