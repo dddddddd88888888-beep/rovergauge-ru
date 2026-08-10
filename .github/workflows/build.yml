@@ -48,11 +48,10 @@ jobs:
             }
           }
 
-          # 2. Патч: Убираем библиотеку 'm' и флаги MinGW
+          # 2. Патч: Убираем библиотеку 'm' и флаги MinGW из CMakeLists.txt
           $cmakeFile = "libcomm_src_clean/CMakeLists.txt"
           $content = Get-Content $cmakeFile -Raw
           if ($content -match 'target_link_libraries.*\bm\b') {
-             Write-Host "Removing 'm' library reference..."
              $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s+', '$1 '
              $content = $content -replace '(target_link_libraries\s*\([^)]*)\s+\bm\b\s*\)', '$1)'
              Set-Content -Path $cmakeFile -Value $content -NoNewline
@@ -61,50 +60,41 @@ jobs:
              $content = $content -replace '\s-static-libgcc\s*', ' '
              Set-Content -Path $cmakeFile -Value $content -NoNewline
           }
-          # Отключаем сборку тестовых приложений (read14cux/write14cux), если есть такая опция
-          # Часто это флаг BUILD_TESTING или аналогичный. Если нет, просто игнорируем ошибки линковки тестов.
-          # В данном случае мы просто соберем только целевую библиотеку.
-          
-          # 3. Сборка ТОЛЬКО библиотеки (target comm14cux)
+          Set-Content -Path $cmakeFile -Value $content -NoNewline
+
+          # 3. Сборка
           $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
           cmake -B libcomm_build -G "Visual Studio 18 2026" -A x64 -S libcomm_src_clean
           Remove-Item Env:\CMAKE_POLICY_VERSION_MINIMUM -ErrorAction SilentlyContinue
 
-          # Собираем только целевой проект comm14cux, игнорируя тесты
+          # Собираем ТОЛЬКО библиотеку, игнорируя тестовые утилиты
           cmake --build libcomm_build --config Release --target comm14cux
           
-          # 4. Поиск и копирование файлов
-          # Ищем .lib файл (он может называться comm14cux.lib или libcomm14cux.lib)
-          $libFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.lib" | Select-Object -First 1
-          $dllFile = Get-ChildItem -Path "libcomm_build" -Recurse -Filter "*.dll" | Select-Object -First 1
+          # 4. Копирование результатов в КОРЕНЬ рабочей папки
+          $buildReleasePath = "libcomm_build/Release"
+          
+          # Ищем .lib файл (он может называться comm14cux.lib, libcomm14cux.lib или иметь префикс)
+          $libFile = Get-ChildItem -Path $buildReleasePath -Filter "*.lib" | Select-Object -First 1
+          $dllFile = Get-ChildItem -Path $buildReleasePath -Filter "*.dll" | Select-Object -First 1
           
           if ($libFile) {
-            Copy-Item $libFile.FullName -Destination "comm14cux.lib" -Force
-            Write-Host "SUCCESS: Found and copied library: $($libFile.Name)"
+              Copy-Item $libFile.FullName -Destination "comm14cux.lib" -Force
+              Write-Host "SUCCESS: Copied $($libFile.Name) to comm14cux.lib"
           } else {
-            # Если .lib не найден, возможно, это DLL-only библиотека, но для MSVC нужен import lib.
-            # Попробуем сгенерировать его из DLL, если файл .lib отсутствует
-            Write-Warning "No .lib file found. Attempting to generate from DLL..."
-            if ($dllFile) {
-               # Копируем DLL во временную папку для генерации
-               Copy-Item $dllFile.FullName -Destination "temp_dll.dll" -Force
-               dumpbin /exports temp_dll.dll > exports.txt
-               "LIBRARY temp_dll.dll" | Out-File -FilePath "temp.def" -Encoding ASCII
-               "EXPORTS" | Out-File -FilePath "temp.def" -Append -Encoding ASCII
-               Get-Content exports.txt | Select-String "^\s+[0-9]+" | ForEach-Object {
-                   $parts = $_.Line -split '\s+'
-                   if ($parts.Count -ge 4) {
-                       $funcName = $parts[3].Split('@')[0]
-                       "    $funcName" | Out-File -FilePath "temp.def" -Append -Encoding ASCII
-                   }
-               }
-               lib /machine:x64 /def:temp.def /out:comm14cux.lib
-               Remove-Item temp_dll.dll, temp.def, exports.txt -ErrorAction SilentlyContinue
-            }
+              Write-Error "CRITICAL: No .lib file found in $buildReleasePath!"
+              Get-ChildItem -Path $buildReleasePath
+              exit 1
           }
           
           if ($dllFile) {
-            Copy-Item $dllFile.FullName -Destination "comm14cux.dll" -Force
+              Copy-Item $dllFile.FullName -Destination "comm14cux.dll" -Force
+              Write-Host "Copied DLL: $($dllFile.Name)"
+          }
+          
+          # Проверка: файл должен лежать в корне
+          if (-not (Test-Path "comm14cux.lib")) {
+              Write-Error "File comm14cux.lib not found in root after copy!"
+              exit 1
           }
         shell: pwsh
 
@@ -119,7 +109,12 @@ jobs:
 
       - name: Configure Rovergauge
         run: |
-          cmake -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}"
+          Write-Host "Configuring Rovergauge..."
+          # Явно указываем текущую папку (где лежит comm14cux.lib) в CMAKE_PREFIX_PATH
+          cmake -B build `
+            -G "Visual Studio 18 2026" `
+            -A x64 `
+            -DCMAKE_PREFIX_PATH="$env:Qt5_DIR;${{ github.workspace }}"
         shell: pwsh
           
       - name: Build Rovergauge
