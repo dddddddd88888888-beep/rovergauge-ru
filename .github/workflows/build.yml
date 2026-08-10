@@ -34,7 +34,7 @@ jobs:
           C:\Qt\5.15.2\msvc2019_64\bin\windeployqt.exe --release build\Release\rovergauge.exe
           
       - name: Upload EXE
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: rovergauge-built
           path: build/Release/   
