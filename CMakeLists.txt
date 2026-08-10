@@ -106,8 +106,6 @@ add_executable (rovergauge
     src/data.c
     src/protocol.c
     src/setup.c
-    # read14cux.c и write14cux.c обычно не нужны, это отдельные утилиты.
-    # Если они не требуются для работы программы, добавлять их не нужно.
     ${UI_SOURCE}
     ${RG_RESOURCE}
     rovergauge.rc)
